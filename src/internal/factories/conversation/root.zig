@@ -1,0 +1,94 @@
+pub const Conversation = struct {
+    // Globals
+    pub const Error = error{
+        TransactionBeginFailed,
+        ConversationCreationFailed,
+        ConversationSearchFailed,
+        MessageCreationFailed,
+    };
+
+    // Locals
+    pool: *pg.Pool,
+
+    // This takes an injected pg.Pool and returns a new
+    // Conversation factory instance.
+    pub fn init(self: *@This(), pool: *pg.Pool) void {
+        self.pool = pool;
+    }
+
+    // Read Operations
+    pub fn search_conversations(self: *@This(), title: []const u8, pointer: u64, limit: u64, allocator: std.mem.Allocator) !std.ArrayList(types.Message) {
+        const search_query =
+            \\ SELECT * FROM conversation
+            \\ WHERE title ILIKE $1
+            \\ ORDER BY created_at DESC
+            \\ OFFSET $2
+            \\ LIMIT $3;
+        ;
+
+        var rows = self.pool.queryOpts(search_query, .{ title, pointer, limit }, .{ .column_names = true }) catch |err| {
+            std.log.err("failed to search conversations with title \"{s}\" and with error <{s}>\n", .{ title, @errorName(err) });
+            return Error.ConversationSearchFailed;
+        };
+
+        var list: std.ArrayList(types.Conversation) = .empty;
+        var mapper = rows.mapper(types.Conversation, .{ .allocator = allocator });
+        while (try mapper.next()) |c| {
+            try list.append(allocator, c);
+        }
+
+        return list.toOwnedSlice(allocator);
+    }
+
+    // Write Operations
+    pub fn create(
+        self: *@This(),
+        title: []const u8,
+        description: ?[]const u8,
+        initial_message: ?[]const u8,
+        initial_message_role: ?[]const u8,
+    ) !void {
+        // Using a connection so that we can perform a rollback.
+        const conn = try self.pool.acquire();
+        defer conn.release();
+
+        const conversation_creation_query =
+            \\ INSERT INTO conversation (title, description) 
+            \\ VALUES ($1, $2) RETURNING id;
+        ;
+
+        // This does not include a parent message id since it's a new
+        // conversation.
+        const message_creation_query =
+            \\ INSERT INTO message (
+            \\      content, conversation_id, role
+            \\ ) VALUES ($1, $2, $3);
+        ;
+
+        conn.begin() catch |err| {
+            std.log.err("failed to begin the transaction with the database for conversation title \"{s}\" and with error <{s}>\n", .{ title, @errorName(err) });
+            return Error.TransactionBeginFailed;
+        };
+        errdefer |err| {
+            std.log.err("failed procedure so attempting to rollback the transaction with the database for conversation title \"{s}\" and with error <{s}>\n", .{ title, @errorName(err) });
+            conn.rollback() catch |rollback_err| {
+                std.log.err("failed to rollback the transaction with the database for conversation title \"{s}\" and with error <{s}>\n", .{ title, @errorName(rollback_err) });
+            };
+        }
+
+        var conversation_id_row = (try conn.row(conversation_creation_query, .{ title, description })) orelse return Error.ConversationCreationFailed;
+        defer conversation_id_row.deinit() catch {};
+
+        const conversation_id = try conversation_id_row.get(i64, 0);
+
+        _ = (try conn.exec(message_creation_query, .{ initial_message, conversation_id, initial_message_role })) catch |err| {
+            std.log.err("failed to create the initial message for conversation title \"{s}\" and with error <{s}>\n", .{ title, @errorName(err) });
+            return Error.MessageCreationFailed;
+        };
+    }
+};
+
+// Imports
+const std = @import("std");
+const pg = @import("pg");
+const types = @import("../../types/root.zig");
