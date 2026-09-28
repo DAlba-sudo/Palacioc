@@ -1,6 +1,16 @@
 .{
     .name = .palacioc,
     .version = "0.0.1",
+    .dependencies = .{
+        .pg = .{
+            .url = "git+https://github.com/karlseguin/pg.zig.git#2c7c6cae50a32fa5cc53eabf490a072f41d6f3b0",
+            .hash = "pg-0.0.0-Wp_7gYHeBgAD8sCL-4MUhOs3K14n-Fu4EquuoB-BNVo5",
+        },
+        .httpz = .{
+            .url = "git+https://github.com/karlseguin/http.zig.git#9b14af98fde5e98abb9a8376fe02b42003e835bf",
+            .hash = "httpz-0.0.0-PNVzrMgTCQDhzfBLRRebTx9LU056Ph2erdN9-42rFbhj",
+        },
+    },
     .minimum_zig_version = "0.16.0",
     .paths = .{""},
     .fingerprint = 0x679c77bc13a711cf,

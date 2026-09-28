@@ -1,6 +1,7 @@
+.git/
 .zig-cache/
 zig-out/
 zig-pkg/
+docs/
 *.env
 .env
-.DS_Store
