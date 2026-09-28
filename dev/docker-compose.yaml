@@ -1,0 +1,44 @@
+name: palacioc
+
+services:
+  postgres:
+    image: postgres:18
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-palacio}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-hairy-horse-password-123}
+      POSTGRES_DB: ${POSTGRES_DB:-palacio}
+    ports:
+      - "127.0.0.1:${POSTGRES_PORT:-5432}:5432"
+    volumes:
+      # Postgres 18+ keeps its data under /var/lib/postgresql/<major>, so the
+      # volume is mounted one level above the old /var/lib/postgresql/data.
+      - postgres-data:/var/lib/postgresql
+      # Only runs against an empty data volume. Use `down -v` to re-apply.
+      - ../src/sql/schema.sql:/docker-entrypoint-initdb.d/001-schema.sql:ro
+    healthcheck:
+      # pg_isready checks if the server is accepting connections
+      test: ["CMD-SHELL", "pg_isready -U $${POSTGRES_USER} -d $${POSTGRES_DB}"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+      start_period: 10s # Gives Postgres a grace period to start up initially
+
+  # Zig toolchain for building/testing on Linux without a local install:
+  #   docker compose -f dev/docker-compose.yaml run --rm zig zig build test
+  zig:
+    profiles: [tools]
+    build:
+      context: ..
+      dockerfile: dev/Dockerfile
+      target: zig
+    working_dir: /app
+    volumes:
+      - ..:/app
+      # Keep Linux build output and cache out of the host's checkout.
+      - zig-cache:/app/.zig-cache
+      - zig-out:/app/zig-out
+
+volumes:
+  postgres-data:
+  zig-cache:
+  zig-out:
