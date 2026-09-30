@@ -8,7 +8,7 @@ pub const Conversation = struct {
     };
 
     // Locals
-    pool: *pg.Pool,
+    pool: ?*pg.Pool = null,
 
     // This takes an injected pg.Pool and returns a new
     // Conversation factory instance.
@@ -17,39 +17,57 @@ pub const Conversation = struct {
     }
 
     // Read Operations
-    pub fn search_conversations(self: *@This(), title: []const u8, pointer: u64, limit: u64, allocator: std.mem.Allocator) !std.ArrayList(types.Message) {
+    pub fn search_conversations(self: *const @This(), title: []const u8, pointer: u64, limit: u64, allocator: std.mem.Allocator) !std.ArrayList(types.Conversation).Slice {
+        if (self.pool == null) {
+            std.log.err("failed to search conversations with title \"{s}\" because the database connection pool is not initialized\n", .{title});
+            return Error.ConversationSearchFailed;
+        }
+        const pool = self.pool.?;
+
         const search_query =
-            \\ SELECT * FROM conversation
-            \\ WHERE title ILIKE $1
+            \\ SELECT title, description, next_available_color, created_at, updated_at, id FROM conversation
+            \\ WHERE title ILIKE '%' || $1 ::text || '%'
             \\ ORDER BY created_at DESC
             \\ OFFSET $2
             \\ LIMIT $3;
         ;
 
-        var rows = self.pool.queryOpts(search_query, .{ title, pointer, limit }, .{ .column_names = true }) catch |err| {
+        var rows = pool.queryOpts(search_query, .{ title, pointer, limit }, .{ .column_names = true }) catch |err| {
             std.log.err("failed to search conversations with title \"{s}\" and with error <{s}>\n", .{ title, @errorName(err) });
             return Error.ConversationSearchFailed;
         };
+        defer rows.deinit();
 
         var list: std.ArrayList(types.Conversation) = .empty;
         var mapper = rows.mapper(types.Conversation, .{ .allocator = allocator });
-        while (try mapper.next()) |c| {
+        while (mapper.next() catch |err| {
+            std.log.err("failed to map the conversation row with title \"{s}\" and with error <{s}>\n", .{ title, @errorName(err) });
+            rows.drain() catch {};
+            return err;
+        }) |c| {
+            std.log.debug("found conversation with title \"{s}\" and id {d}\n", .{ c.title, c.id });
             try list.append(allocator, c);
         }
 
-        return list.toOwnedSlice(allocator);
+        return try list.toOwnedSlice(allocator);
     }
 
     // Write Operations
     pub fn create(
-        self: *@This(),
+        self: *const @This(),
         title: []const u8,
         description: ?[]const u8,
         initial_message: ?[]const u8,
         initial_message_role: ?[]const u8,
     ) !void {
+        if (self.pool == null) {
+            std.log.err("failed to create a conversation with title \"{s}\" because the database connection pool is not initialized\n", .{title});
+            return Error.ConversationCreationFailed;
+        }
+        const pool = self.pool.?;
+
         // Using a connection so that we can perform a rollback.
-        const conn = try self.pool.acquire();
+        const conn = try pool.acquire();
         defer conn.release();
 
         const conversation_creation_query =

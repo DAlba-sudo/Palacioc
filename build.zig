@@ -15,6 +15,7 @@ pub fn build(b: *std.Build) void {
         .optimize = optimize,
         .imports = &.{
             .{ .name = "pg", .module = pg.module("pg") },
+            .{ .name = "httpz", .module = httpz.module("httpz") },
         },
     });
 

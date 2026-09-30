@@ -8,9 +8,9 @@
 --
 -- The `next_available_color` field holds the color to be used on the  next 
 -- message fork, for this conversation.
-CREATE TABLE IF NOT EXISTS convo (
+CREATE TABLE IF NOT EXISTS conversation (
   title TEXT NOT NULL,
-  description TEXT NOT NULL,
+  description TEXT,
   next_available_color INT DEFAULT 0,
 
   created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
@@ -25,7 +25,7 @@ CREATE TABLE IF NOT EXISTS convo (
 -- message color table.
 CREATE TABLE IF NOT EXISTS message (
   content TEXT NOT NULL,
-  conversation_id INT REFERENCES convo(id) ON DELETE CASCADE NOT NULL,
+  conversation_id INT REFERENCES conversation(id) ON DELETE CASCADE NOT NULL,
   role VARCHAR(256) DEFAULT 'person',
   parent_message_id INT REFERENCES message(id) ON DELETE CASCADE,
 
@@ -57,7 +57,7 @@ CREATE TABLE IF NOT EXISTS translation (
 -- and querying for messages containing that color.
 CREATE TABLE IF NOT EXISTS message_color(
   message_id INT REFERENCES message(id) ON DELETE CASCADE,
-  conversation_id INT REFERENCES convo(id) ON DELETE CASCADE,
+  conversation_id INT REFERENCES conversation(id) ON DELETE CASCADE,
   color INT,
 
   created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,

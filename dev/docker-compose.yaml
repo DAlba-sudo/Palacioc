@@ -4,11 +4,11 @@ services:
   postgres:
     image: postgres:18
     environment:
-      POSTGRES_USER: ${POSTGRES_USER:-palacio}
-      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-hairy-horse-password-123}
-      POSTGRES_DB: ${POSTGRES_DB:-palacio}
+      POSTGRES_USER: palacioc
+      POSTGRES_PASSWORD: hairy-horse-password-123
+      POSTGRES_DB: palacioc
     ports:
-      - "127.0.0.1:${POSTGRES_PORT:-5432}:5432"
+      - "127.0.0.1:5432:5432"
     volumes:
       # Postgres 18+ keeps its data under /var/lib/postgresql/<major>, so the
       # volume is mounted one level above the old /var/lib/postgresql/data.
