@@ -6,7 +6,11 @@ pub fn main(init: process.Init) !void {
     };
 
     // -- Create the HTTP server configuration
-    var _server_config: httpz.Config = .{};
+    var _server_config: httpz.Config = .{
+        .request = .{
+            .max_form_count = 25,
+        },
+    };
     if (settings.palacioc_listen_all_interfaces) {
         _server_config.address = .all(settings.palacioc_listen_port);
     } else {
@@ -23,7 +27,7 @@ pub fn main(init: process.Init) !void {
         app.pool = pg.Pool.initUri(init.io, init.gpa, try .parse(settings.db_connection_uri), .{
             .size = settings.db_connection_pool_size,
         }) catch |err| blk: {
-            std.log.err("Failed to create a database connection pool with error <{s}>\n", .{@errorName(err)});
+            std.log.err("Failed to create a database connection pool with error <{s}>", .{@errorName(err)});
 
             if (settings.db_fail_on_connection) {
                 std.process.exit(1);
@@ -44,7 +48,7 @@ pub fn main(init: process.Init) !void {
 
     try internal.ConversationRoutes.register(&server);
 
-    std.log.info("Server is listening on port {d}\n", .{settings.palacioc_listen_port});
+    std.log.info("Server is listening on port {d}", .{settings.palacioc_listen_port});
     try server.listen();
 }
 

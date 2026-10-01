@@ -9,6 +9,15 @@ pub fn build(b: *std.Build) void {
     const httpz = b.dependency("httpz", .{ .target = target, .optimize = optimize });
 
     // Internal Library
+    const contract_mod = b.createModule(.{
+        .root_source_file = b.path("src/pkg/contract/root.zig"),
+        .target = target,
+        .optimize = optimize,
+        .imports = &.{
+            .{ .name = "httpz", .module = httpz.module("httpz") },
+        },
+    });
+
     const internal = b.createModule(.{
         .root_source_file = b.path("src/internal/root.zig"),
         .target = target,
@@ -16,6 +25,7 @@ pub fn build(b: *std.Build) void {
         .imports = &.{
             .{ .name = "pg", .module = pg.module("pg") },
             .{ .name = "httpz", .module = httpz.module("httpz") },
+            .{ .name = "contract", .module = contract_mod },
         },
     });
 
@@ -30,6 +40,7 @@ pub fn build(b: *std.Build) void {
                 .{ .name = "pg", .module = pg.module("pg") },
                 .{ .name = "httpz", .module = httpz.module("httpz") },
                 .{ .name = "internal", .module = internal },
+                .{ .name = "contract", .module = contract_mod },
             },
         }),
     });

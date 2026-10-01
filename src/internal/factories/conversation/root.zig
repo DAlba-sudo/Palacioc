@@ -19,7 +19,7 @@ pub const Conversation = struct {
     // Read Operations
     pub fn search_conversations(self: *const @This(), title: []const u8, pointer: u64, limit: u64, allocator: std.mem.Allocator) !std.ArrayList(types.Conversation).Slice {
         if (self.pool == null) {
-            std.log.err("failed to search conversations with title \"{s}\" because the database connection pool is not initialized\n", .{title});
+            std.log.err("failed to search conversations with title \"{s}\" because the database connection pool is not initialized", .{title});
             return Error.ConversationSearchFailed;
         }
         const pool = self.pool.?;
@@ -33,7 +33,7 @@ pub const Conversation = struct {
         ;
 
         var rows = pool.queryOpts(search_query, .{ title, pointer, limit }, .{ .column_names = true }) catch |err| {
-            std.log.err("failed to search conversations with title \"{s}\" and with error <{s}>\n", .{ title, @errorName(err) });
+            std.log.err("failed to search conversations with title \"{s}\" and with error <{s}>", .{ title, @errorName(err) });
             return Error.ConversationSearchFailed;
         };
         defer rows.deinit();
@@ -41,11 +41,11 @@ pub const Conversation = struct {
         var list: std.ArrayList(types.Conversation) = .empty;
         var mapper = rows.mapper(types.Conversation, .{ .allocator = allocator });
         while (mapper.next() catch |err| {
-            std.log.err("failed to map the conversation row with title \"{s}\" and with error <{s}>\n", .{ title, @errorName(err) });
+            std.log.err("failed to map the conversation row with title \"{s}\" and with error <{s}>", .{ title, @errorName(err) });
             rows.drain() catch {};
             return err;
         }) |c| {
-            std.log.debug("found conversation with title \"{s}\" and id {d}\n", .{ c.title, c.id });
+            std.log.debug("found conversation with title \"{s}\" and id {d}", .{ c.title, c.id });
             try list.append(allocator, c);
         }
 
@@ -61,7 +61,7 @@ pub const Conversation = struct {
         initial_message_role: ?[]const u8,
     ) !void {
         if (self.pool == null) {
-            std.log.err("failed to create a conversation with title \"{s}\" because the database connection pool is not initialized\n", .{title});
+            std.log.err("failed to create a conversation with title \"{s}\" because the database connection pool is not initialized", .{title});
             return Error.ConversationCreationFailed;
         }
         const pool = self.pool.?;
@@ -84,24 +84,33 @@ pub const Conversation = struct {
         ;
 
         conn.begin() catch |err| {
-            std.log.err("failed to begin the transaction with the database for conversation title \"{s}\" and with error <{s}>\n", .{ title, @errorName(err) });
+            std.log.err("failed to begin the transaction with the database for conversation title \"{s}\" and with error <{s}>", .{ title, @errorName(err) });
             return Error.TransactionBeginFailed;
         };
         errdefer |err| {
-            std.log.err("failed procedure so attempting to rollback the transaction with the database for conversation title \"{s}\" and with error <{s}>\n", .{ title, @errorName(err) });
+            std.log.err("failed procedure so attempting to rollback the transaction with the database for conversation title \"{s}\" and with error <{s}>", .{ title, @errorName(err) });
             conn.rollback() catch |rollback_err| {
-                std.log.err("failed to rollback the transaction with the database for conversation title \"{s}\" and with error <{s}>\n", .{ title, @errorName(rollback_err) });
+                std.log.err("failed to rollback the transaction with the database for conversation title \"{s}\" and with error <{s}>", .{ title, @errorName(rollback_err) });
             };
         }
 
-        var conversation_id_row = (try conn.row(conversation_creation_query, .{ title, description })) orelse return Error.ConversationCreationFailed;
-        defer conversation_id_row.deinit() catch {};
+        var conversation_id_row = (conn.row(conversation_creation_query, .{ title, description }) catch |err| blk: {
+            std.log.err("failed to create the conversation with title \"{s}\" and with error <{s}>", .{ title, @errorName(err) });
+            break :blk null;
+        }) orelse {
+            return error.ConversationCreationFailed;
+        };
 
-        const conversation_id = try conversation_id_row.get(i64, 0);
+        const conversation_id = try conversation_id_row.get(i32, 0);
+        conversation_id_row.deinit() catch {};
 
-        _ = (try conn.exec(message_creation_query, .{ initial_message, conversation_id, initial_message_role })) catch |err| {
-            std.log.err("failed to create the initial message for conversation title \"{s}\" and with error <{s}>\n", .{ title, @errorName(err) });
-            return Error.MessageCreationFailed;
+        _ = (conn.exec(message_creation_query, .{ initial_message, conversation_id, initial_message_role })) catch |err| {
+            std.log.err("failed to create the initial message for conversation title \"{s}\" and with error <{s}>", .{ title, @errorName(err) });
+            return error.MessageCreationFailed;
+        };
+        conn.commit() catch |err| {
+            std.log.err("failed to commit the transaction with the database for conversation title \"{s}\" and with error <{s}>", .{ title, @errorName(err) });
+            return error.TransactionBeginFailed;
         };
     }
 };

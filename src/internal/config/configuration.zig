@@ -17,7 +17,7 @@ pub const Settings = struct {
         const db_connection_pool_size = environ_map.get("PALACIOC_DB_CONNECTION_POOL_SIZE");
         if (db_connection_pool_size) |size_str| {
             const size = std.fmt.parseInt(u16, size_str, 10) catch |err| {
-                std.log.err("Failed to parse DB_CONNECTION_POOL_SIZE: {}\n", .{err});
+                std.log.err("Failed to parse DB_CONNECTION_POOL_SIZE: {}", .{err});
                 return error.InvalidEnvironmentVariable;
             };
             settings.db_connection_pool_size = size;
@@ -30,7 +30,7 @@ pub const Settings = struct {
         const palacioc_listen_port = environ_map.get("PALACIOC_LISTEN_PORT");
         if (palacioc_listen_port) |port_str| {
             const port = std.fmt.parseInt(u16, port_str, 10) catch |err| {
-                std.log.err("Failed to parse PALACIOC_LISTEN_PORT: {}\n", .{err});
+                std.log.err("Failed to parse PALACIOC_LISTEN_PORT: {}", .{err});
                 return error.InvalidEnvironmentVariable;
             };
             settings.palacioc_listen_port = port;
