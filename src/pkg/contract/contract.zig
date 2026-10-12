@@ -1,6 +1,4 @@
-// pub const Contract = struct {
-//     key: []const u8,
-// };
+pub const Error = error{ ContractKeyNotFound, ContractInvalidValue };
 
 pub const Location = enum {
     Header,
@@ -9,57 +7,50 @@ pub const Location = enum {
     Body,
 };
 
+/// Declares one request input: where it lives and an optional default.
 pub const Contract = struct {
     key: []const u8,
     location: Location,
     default_value: ?[]const u8 = null,
 
-    pub fn get(self: @This(), req: *httpz.Request) ![]const u8 {
-        switch (self.location) {
-            .Header => {
-                const value = req.header(self.key);
-                if (value) |v| {
-                    return v;
-                }
-            },
-            .Query => {
-                const kv = req.query() catch {
-                    std.log.err("failed to get query parameters for contract request", .{});
-                    return error.ContractKeyNotFound;
-                };
+    /// The raw value, or null when absent (the default is not applied).
+    pub fn opt(self: @This(), req: *httpz.Request) ?[]const u8 {
+        return switch (self.location) {
+            .Header => req.header(self.key),
+            .Path => req.param(self.key),
+            .Query => if (req.query()) |kv| kv.get(self.key) else |_| null,
+            .Body => if (req.formData()) |kv| kv.get(self.key) else |_| null,
+        };
+    }
 
-                if (kv.get(self.key)) |v| {
-                    return v;
-                }
-            },
-            .Path => {
-                const value = req.param(self.key);
-                if (value) |v| {
-                    return v;
-                }
-            },
-            .Body => {
-                const kv = req.formData() catch {
-                    std.log.err("failed to get form data for contract request", .{});
-                    return error.ContractKeyNotFound;
-                };
-
-                if (kv.get(self.key)) |v| {
-                    return v;
-                }
-            },
-        }
-
-        std.log.debug("contract key not found: {s}", .{self.key});
-        if (self.default_value) |v| {
-            std.log.debug("returning default value for contract key: {s}", .{v});
-            return v;
-        } else {
-            std.log.debug("no default value provided for contract key: {s}", .{self.key});
+    /// The value, else the default, else `ContractKeyNotFound`.
+    pub fn get(self: @This(), req: *httpz.Request) Error![]const u8 {
+        return self.opt(req) orelse self.default_value orelse {
+            std.log.debug("contract key not found: {s}", .{self.key});
             return error.ContractKeyNotFound;
-        }
+        };
+    }
+
+    /// A positive 32-bit id (digits only).
+    pub fn getId(self: @This(), req: *httpz.Request) Error!i32 {
+        return parseId(try self.get(req)) orelse error.ContractInvalidValue;
     }
 };
+
+/// Strict "[0-9]+" id parse: positive, fits in i32 (std's parseInt also takes '+' and '_').
+pub fn parseId(s: []const u8) ?i32 {
+    if (s.len == 0 or s.len > 10) return null;
+    for (s) |c| if (!std.ascii.isDigit(c)) return null;
+    const v = std.fmt.parseInt(i32, s, 10) catch return null;
+    return if (v > 0) v else null;
+}
+
+test "parseId" {
+    try std.testing.expectEqual(@as(?i32, 12), parseId("12"));
+    for ([_][]const u8{ "", "0", "-1", "+1", "1_0", "x", "2147483648" }) |bad| {
+        try std.testing.expectEqual(@as(?i32, null), parseId(bad));
+    }
+}
 
 const std = @import("std");
 const httpz = @import("httpz");

@@ -1,4 +1,12 @@
-pub const ConversationFactory = @import("factories/conversation/root.zig").Conversation;
-pub const ConversationRoutes = @import("routes/root.zig").Conversation;
-pub const ServerSettings = @import("config/configuration.zig").Settings;
+pub const VERSION = "0.0.1";
+
+pub const config = @import("config/configuration.zig");
+pub const routes = @import("routes/root.zig");
 pub const types = @import("types/root.zig");
+pub const web = @import("web/root.zig");
+
+test {
+    _ = routes.errors;
+    _ = types;
+    _ = web;
+}

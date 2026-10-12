@@ -71,6 +71,8 @@ pub fn build(b: *std.Build) void {
     const test_step = b.step("test", "Run unit tests");
     const internal_tests = b.addTest(.{ .root_module = internal });
     const server_tests = b.addTest(.{ .root_module = exe_server.root_module });
+    const contract_tests = b.addTest(.{ .root_module = contract_mod });
+    test_step.dependOn(&b.addRunArtifact(contract_tests).step);
     test_step.dependOn(&b.addRunArtifact(internal_tests).step);
     test_step.dependOn(&b.addRunArtifact(server_tests).step);
 }
