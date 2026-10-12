@@ -1,0 +1,15 @@
+meta {
+  name: Get Route (root to message)
+  type: http
+  seq: 5
+}
+
+get {
+  url: {{baseUrl}}/api/message/:id/route
+  body: none
+  auth: none
+}
+
+params:path {
+  id: 2
+}

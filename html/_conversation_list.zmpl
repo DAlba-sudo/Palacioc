@@ -5,7 +5,7 @@
   const empty = try l.chainRefT(bool, "empty");
 }
 @if (empty)
-<li class="muted">No conversations yet.</li>
+<li class="muted">No conversations found.</li>
 @end
 @for (items) |c| {
 <li><a href="/ui/conversation/{{c.id}}" hx-get="/ui/conversation/{{c.id}}" hx-target="#main" hx-swap="innerHTML" hx-push-url="true"><strong>{{c.title}}</strong> <span class="lang">{{c.language}}</span></a>

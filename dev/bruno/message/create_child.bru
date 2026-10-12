@@ -1,0 +1,17 @@
+meta {
+  name: Create Child Message (new branch)
+  type: http
+  seq: 2
+}
+
+post {
+  url: {{baseUrl}}/api/message
+  body: formUrlEncoded
+  auth: none
+}
+
+body:form-urlencoded {
+  parent_message_id: 1
+  content: What would you like?
+  role: barista
+}

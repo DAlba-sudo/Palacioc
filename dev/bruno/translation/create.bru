@@ -1,0 +1,17 @@
+meta {
+  name: Create Translation
+  type: http
+  seq: 1
+}
+
+post {
+  url: {{baseUrl}}/api/translation
+  body: formUrlEncoded
+  auth: none
+}
+
+body:form-urlencoded {
+  message_id: 1
+  language: es
+  content: Buenos dias
+}

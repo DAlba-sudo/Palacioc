@@ -1,0 +1,17 @@
+meta {
+  name: Search Conversations
+  type: http
+  seq: 2
+}
+
+get {
+  url: {{baseUrl}}/api/conversation/search
+  body: none
+  auth: none
+}
+
+params:query {
+  s: coffee
+  p: 0
+  l: 10
+}

@@ -7,6 +7,7 @@ pub const web = @import("web/root.zig");
 
 test {
     _ = routes.errors;
+    _ = routes.api;
     _ = types;
     _ = web;
 }

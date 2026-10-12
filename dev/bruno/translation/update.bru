@@ -1,0 +1,20 @@
+meta {
+  name: Update Translation
+  type: http
+  seq: 3
+}
+
+put {
+  url: {{baseUrl}}/api/translation/:id
+  body: formUrlEncoded
+  auth: none
+}
+
+params:path {
+  id: 1
+}
+
+body:form-urlencoded {
+  language: es
+  content: Buen dia
+}

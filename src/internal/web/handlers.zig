@@ -114,7 +114,9 @@ pub fn messageCreate(app: App, req: *httpz.Request, res: *httpz.Response) !void 
     const p = try app.pool();
     const f = forms.message(req.formData() catch return error.ContractKeyNotFound);
     if (!forms.ok(f)) {
-        return render.send(app, res, "message_form", false, .unprocessable_entity, .{ .form = view.messageForm(f, false, 0, "") });
+        var hint: []const u8 = "New root message";
+        if (f.parent_id != 0) hint = (try messageById(app, res, f.parent_id)).content;
+        return render.send(app, res, "message_form", false, .unprocessable_entity, .{ .form = view.messageForm(f, false, 0, hint) });
     }
     if (f.parent_id == 0 and f.conversation_id == 0) return error.ContractKeyNotFound;
     const parent: ?i32 = if (f.parent_id != 0) f.parent_id else null;
@@ -128,7 +130,7 @@ pub fn messageCreate(app: App, req: *httpz.Request, res: *httpz.Response) !void 
 pub fn messageEdit(app: App, req: *httpz.Request, res: *httpz.Response) !void {
     const m = try messageById(app, res, try c_id.getId(req));
     const f: forms.MessageForm = .{ .role = m.role, .content = m.content };
-    try render.send(app, res, "message_form", false, .ok, .{ .form = view.messageForm(f, true, m.id, "Edit message") });
+    try render.send(app, res, "message_form", false, .ok, .{ .form = view.messageForm(f, true, m.id, "") });
 }
 
 /// PUT /ui/message/:id
@@ -137,7 +139,7 @@ pub fn messageUpdate(app: App, req: *httpz.Request, res: *httpz.Response) !void 
     const id = try c_id.getId(req);
     const f = forms.message(req.formData() catch return error.ContractKeyNotFound);
     if (!forms.ok(f)) {
-        return render.send(app, res, "message_form", false, .unprocessable_entity, .{ .form = view.messageForm(f, true, id, "Edit message") });
+        return render.send(app, res, "message_form", false, .unprocessable_entity, .{ .form = view.messageForm(f, true, id, "") });
     }
     const updated = try Message.update(p, res.arena, id, f.content, f.role) orelse return error.NotFound;
     res.header("HX-Trigger", tree_changed);

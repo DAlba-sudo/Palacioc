@@ -25,8 +25,12 @@ pub fn respond(req: *httpz.Request, res: *httpz.Response, err: anyerror) void {
         res.json(.{ .err = m.msg }, .{}) catch {
             res.body = "{\"err\":\"Internal server error.\"}";
         };
-    } else {
+    } else if (render.isFragment(req)) {
         render.flash(res, m.status, m.msg);
+    } else {
+        res.setStatus(m.status); // a plain navigation: no #flash to retarget
+        res.content_type = .TEXT;
+        res.body = m.msg;
     }
 }
 

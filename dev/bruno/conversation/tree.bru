@@ -1,0 +1,15 @@
+meta {
+  name: Get Conversation Tree
+  type: http
+  seq: 5
+}
+
+get {
+  url: {{baseUrl}}/api/conversation/:id/tree
+  body: none
+  auth: none
+}
+
+params:path {
+  id: 1
+}

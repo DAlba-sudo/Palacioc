@@ -9,4 +9,5 @@ test {
     _ = forms;
     _ = render;
     _ = view;
+    _ = @import("templates_test.zig");
 }

@@ -10,7 +10,6 @@ pub const Settings = struct {
         var settings = Settings{};
         const db_connection_uri = environ_map.get("PALACIOC_DB_CONNECTION_URI");
         if (db_connection_uri) |uri| {
-            std.log.debug("postgres connection uri caught @config time '{s}'", .{uri});
             settings.db_connection_uri = uri;
         }
 
