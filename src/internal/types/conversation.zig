@@ -10,10 +10,8 @@ pub const Conversation = struct {
 
     /// Case-insensitive substring match on the title, newest first.
     pub fn search(p: *pg.Pool, a: std.mem.Allocator, text: []const u8, offset: u32, limit: u32) db.Error![]Conversation {
-        return db.all(Conversation, p, a,
-            "SELECT " ++ cols ++ " FROM conversation WHERE position(lower($1::text) in lower(title)) > 0 " ++
-                "ORDER BY created_at DESC, id DESC OFFSET $2::int LIMIT $3::int",
-            .{ text, offset, limit });
+        return db.all(Conversation, p, a, "SELECT " ++ cols ++ " FROM conversation WHERE position(lower($1::text) in lower(title)) > 0 " ++
+            "ORDER BY created_at DESC, id DESC OFFSET $2::int LIMIT $3::int", .{ text, offset, limit });
     }
 
     pub fn get(p: *pg.Pool, a: std.mem.Allocator, id: i32) db.Error!?Conversation {
@@ -38,10 +36,8 @@ pub const Conversation = struct {
 
     /// Only the non-null fields change.
     pub fn update(p: *pg.Pool, a: std.mem.Allocator, id: i32, title: ?[]const u8, description: ?[]const u8, language: ?[]const u8) db.Error!?Conversation {
-        return db.one(Conversation, p, a,
-            "UPDATE conversation SET title = COALESCE($2, title), description = COALESCE($3, description), " ++
-                "source_language = COALESCE($4, source_language), updated_at = CURRENT_TIMESTAMP WHERE id = $1 RETURNING " ++ cols,
-            .{ id, title, description, language });
+        return db.one(Conversation, p, a, "UPDATE conversation SET title = COALESCE($2, title), description = COALESCE($3, description), " ++
+            "source_language = COALESCE($4, source_language), updated_at = CURRENT_TIMESTAMP WHERE id = $1 RETURNING " ++ cols, .{ id, title, description, language });
     }
 
     /// Cascades to messages and translations. False when the id is unknown.
