@@ -52,7 +52,7 @@ test "conversation endpoints" {
     try std.testing.expectEqual(@as(usize, 1), found.len);
 
     const tree = try call(a, app, api.conversation.tree, id, "");
-    try std.testing.expectEqual(@as(usize, 1), tree.json.object.get("roots").?.array.items.len);
+    try std.testing.expectEqual(@as(usize, 1), tree.json.object.get("messages").?.array.items.len);
 
     try std.testing.expectEqual(@as(u16, 200), (try call(a, app, api.conversation.delete, id, "")).status);
     try std.testing.expectEqual(@as(u16, 404), (try call(a, app, api.conversation.get, id, "")).status);
@@ -125,3 +125,22 @@ const errors = @import("../errors.zig");
 const types = @import("../../types/root.zig");
 const Conversation = types.Conversation;
 const Message = types.Message;
+
+test "tree endpoint survives a deep chain" {
+    const p = try pool();
+    defer p.deinit();
+    var arena: std.heap.ArenaAllocator = .init(std.testing.allocator);
+    defer arena.deinit();
+    const a = arena.allocator();
+
+    const conv = try Conversation.create(p, a, "It deep", "", "en", "m", "person");
+    defer _ = Conversation.delete(p, conv.id) catch {};
+    var parent = (try Message.listByConversation(p, a, conv.id))[0].id;
+    for (0..300) |_| parent = (try Message.create(p, a, null, parent, "person", "m")).?.id;
+
+    // Not via `call`: httpz.testing writes the whole body before reading it back and blocks on large ones.
+    const flat = try types.tree.flat(a, try Message.listByConversation(p, a, conv.id), &.{});
+    try std.testing.expectEqual(@as(usize, 301), flat.len);
+    var aw: std.Io.Writer.Allocating = .init(a);
+    try std.json.Stringify.value(.{ .conversation = conv, .messages = flat }, .{}, &aw.writer);
+}

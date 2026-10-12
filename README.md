@@ -111,7 +111,7 @@ microseconds since the Unix epoch. A Bruno collection is in `dev/bruno/`.
 | GET | `/api/conversation/search?s=&p=&l=` | title substring `s`, offset `p`, limit `l` (max 100) |
 | POST | `/api/conversation` | `title`, `description`, `source_language` (en), optional `initial_message` + `initial_message_role` |
 | GET / PUT / DELETE | `/api/conversation/:id` | PUT takes any of `title`, `description`, `source_language` |
-| GET | `/api/conversation/:id/tree` | nested messages with translations |
+| GET | `/api/conversation/:id/tree` | flat `messages` (each with `parent_message_id` and `translations`), parents before children |
 | POST | `/api/message` | `content`, `role` (person), and `parent_message_id` (child) or `conversation_id` (root) |
 | GET / PUT / DELETE | `/api/message/:id` | PUT takes `content`, `role`; DELETE removes the subtree |
 | GET | `/api/message/:id/route` | root-to-message path with translations |

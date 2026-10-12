@@ -45,6 +45,22 @@ pub fn parseId(s: []const u8) ?i32 {
     return if (v > 0) v else null;
 }
 
+/// A non-negative offset that fits Postgres `int` (digits only).
+pub fn parseOffset(s: []const u8) ?u32 {
+    if (s.len == 0 or s.len > 10) return null;
+    for (s) |c| if (!std.ascii.isDigit(c)) return null;
+    const v = std.fmt.parseInt(u32, s, 10) catch return null;
+    return if (v <= std.math.maxInt(i32)) v else null;
+}
+
+test "parseOffset bounds" {
+    try std.testing.expectEqual(@as(?u32, 0), parseOffset("0"));
+    try std.testing.expectEqual(@as(?u32, 2147483647), parseOffset("2147483647"));
+    for ([_][]const u8{ "", "-1", "2147483648", "4294967295", "99999999999" }) |bad| {
+        try std.testing.expectEqual(@as(?u32, null), parseOffset(bad));
+    }
+}
+
 test "parseId" {
     try std.testing.expectEqual(@as(?i32, 12), parseId("12"));
     for ([_][]const u8{ "", "0", "-1", "+1", "1_0", "x", "2147483648" }) |bad| {

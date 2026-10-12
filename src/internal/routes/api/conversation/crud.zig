@@ -42,16 +42,18 @@ pub fn delete(app: App, req: *httpz.Request, res: *httpz.Response) !void {
     try res.json(.{ .deleted = id }, .{});
 }
 
-/// GET /api/conversation/:id/tree: `{conversation, roots}` with nested
-/// `children` and per-message `translations`.
+/// GET /api/conversation/:id/tree: `{conversation, messages}`; each message
+/// carries `parent_message_id` (null = root) and its `translations`, in id
+/// order (a parent always precedes its children).
 pub fn tree(app: App, req: *httpz.Request, res: *httpz.Response) !void {
     const p = try app.pool();
     const a = res.arena;
     const conversation = try Conversation.get(p, a, try c_id.getId(req)) orelse return error.NotFound;
     const messages = try Message.listByConversation(p, a, conversation.id);
     const translations = try Translation.listByConversation(p, a, conversation.id);
-    const roots = try types.tree.build(a, messages, translations);
-    try res.json(.{ .conversation = conversation, .roots = roots }, .{});
+    // Flat, not nested: std.json overflows its bit stack on deep chains.
+    const flat = try types.tree.flat(a, messages, translations);
+    try res.json(.{ .conversation = conversation, .messages = flat }, .{});
 }
 
 const httpz = @import("httpz");

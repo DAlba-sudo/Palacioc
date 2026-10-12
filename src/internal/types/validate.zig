@@ -24,7 +24,8 @@ const space = " \t\r\n";
 /// Trims and checks UTF-8 (Postgres would reject it with a 500 otherwise).
 fn clean(raw: ?[]const u8) Error![]const u8 {
     const s = std.mem.trim(u8, raw orelse "", space);
-    if (!std.unicode.utf8ValidateSlice(s)) return error.InvalidText;
+    // Postgres text rejects NUL as well as invalid UTF-8.
+    if (!std.unicode.utf8ValidateSlice(s) or std.mem.indexOfScalar(u8, s, 0) != null) return error.InvalidText;
     return s;
 }
 
@@ -113,6 +114,8 @@ test "rules trim, default and bound" {
     try t.expectError(error.TitleTooLong, title("x" ** 201));
     try t.expectEqualStrings("é" ** 200, try title("é" ** 200)); // 400 bytes, 200 code points
     try t.expectError(error.InvalidText, content("\xff"));
+    try t.expectError(error.InvalidText, content("a\x00b"));
+    try t.expectError(error.InvalidText, title("a\x00"));
     try t.expectEqualStrings("person", try role(" "));
     try t.expectEqualStrings("en", try languageOrDefault(null));
     try t.expectEqualStrings("", try description(null));

@@ -7,7 +7,7 @@ pub const max_limit = 100;
 /// GET /api/conversation/search?s=<title text>&p=<offset>&l=<limit, max 100>
 pub fn search(app: App, req: *httpz.Request, res: *httpz.Response) !void {
     const p = try app.pool();
-    const offset = std.fmt.parseInt(u32, try c_offset.get(req), 10) catch return error.ContractInvalidValue;
+    const offset = contract.parseOffset(try c_offset.get(req)) orelse return error.ContractInvalidValue;
     const limit = std.fmt.parseInt(u32, try c_limit.get(req), 10) catch return error.ContractInvalidValue;
     const found = try Conversation.search(p, res.arena, try c_text.get(req), offset, @min(limit, max_limit));
     try res.json(found, .{});

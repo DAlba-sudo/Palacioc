@@ -167,3 +167,14 @@ test "rows flatten depth-first and route rows carry translations" {
     try std.testing.expectEqual(@as(usize, 2), path[2].depth);
     try std.testing.expectEqualStrings("es", path[2].translations[0].language);
 }
+
+test "rows handle deep chains" {
+    var arena: std.heap.ArenaAllocator = .init(std.testing.allocator);
+    defer arena.deinit();
+    const a = arena.allocator();
+    const msgs = try a.alloc(types.Message, 300);
+    for (msgs, 0..) |*m, i| m.* = .{ .id = @intCast(i + 1), .conversation_id = 1, .parent_message_id = if (i == 0) null else @intCast(i), .role = "p", .content = "c", .created_at = 0, .updated_at = 0 };
+    const flat = try rows(a, try types.tree.build(a, msgs, &.{}));
+    try std.testing.expectEqual(@as(usize, 300), flat.len);
+    try std.testing.expectEqual(@as(usize, max_indent), flat[299].depth);
+}

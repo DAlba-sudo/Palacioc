@@ -27,7 +27,7 @@ pub fn list(app: App, req: *httpz.Request, res: *httpz.Response) !void {
     if (!render.isFragment(req)) return home(app, req, res);
     const p = try app.pool();
     const q = std.mem.trim(u8, try c_q.get(req), " \t\r\n");
-    const offset = std.fmt.parseInt(u32, try c_offset.get(req), 10) catch return error.ContractInvalidValue;
+    const offset = contract.parseOffset(try c_offset.get(req)) orelse return error.ContractInvalidValue;
     const found = try Conversation.search(p, res.arena, q, offset, view.page_size + 1);
     try render.send(app, res, "list_fragment", false, .ok, .{ .list = try view.convList(res.arena, q, offset, found) });
 }
