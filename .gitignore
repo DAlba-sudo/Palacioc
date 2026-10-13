@@ -4,3 +4,4 @@ zig-pkg/
 *.env
 .env
 .DS_Store
+.TODO

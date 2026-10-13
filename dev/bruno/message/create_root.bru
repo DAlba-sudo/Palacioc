@@ -1,0 +1,17 @@
+meta {
+  name: Create Root Message
+  type: http
+  seq: 1
+}
+
+post {
+  url: {{baseUrl}}/api/message
+  body: formUrlEncoded
+  auth: none
+}
+
+body:form-urlencoded {
+  conversation_id: 1
+  content: Good morning
+  role: person
+}

@@ -1,0 +1,15 @@
+meta {
+  name: Get Message
+  type: http
+  seq: 3
+}
+
+get {
+  url: {{baseUrl}}/api/message/:id
+  body: none
+  auth: none
+}
+
+params:path {
+  id: 1
+}

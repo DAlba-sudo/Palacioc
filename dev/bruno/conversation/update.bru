@@ -1,0 +1,21 @@
+meta {
+  name: Update Conversation
+  type: http
+  seq: 4
+}
+
+put {
+  url: {{baseUrl}}/api/conversation/:id
+  body: formUrlEncoded
+  auth: none
+}
+
+params:path {
+  id: 1
+}
+
+body:form-urlencoded {
+  title: Ordering a coffee
+  description: 
+  source_language: en
+}

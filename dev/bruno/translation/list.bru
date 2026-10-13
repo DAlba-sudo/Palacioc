@@ -1,0 +1,15 @@
+meta {
+  name: List Translations of Message
+  type: http
+  seq: 2
+}
+
+get {
+  url: {{baseUrl}}/api/message/:id/translations
+  body: none
+  auth: none
+}
+
+params:path {
+  id: 1
+}

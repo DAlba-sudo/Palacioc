@@ -1,0 +1,19 @@
+meta {
+  name: Create Conversation
+  type: http
+  seq: 1
+}
+
+post {
+  url: {{baseUrl}}/api/conversation
+  body: formUrlEncoded
+  auth: none
+}
+
+body:form-urlencoded {
+  title: Ordering coffee
+  description: At the cafe
+  source_language: en
+  initial_message: Hi, can I get a coffee?
+  initial_message_role: person
+}

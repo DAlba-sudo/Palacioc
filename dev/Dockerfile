@@ -38,15 +38,18 @@ CMD ["zig", "version"]
 
 FROM zig AS build
 
-# Fetch dependencies in their own layer, keyed only on build.zig.zon, so edits
-# to build.zig or src/ reuse the cached dependencies. A stub build.zig is all
+# Fetch dependencies in their own layer, keyed only on build.zig.zon and third_party/, so edits
+# to build.zig or src/ reuse the cached dependencies. The vendored zmpl in
+# third_party/ is a path dependency whose own URL dependencies are fetched too. A stub build.zig is all
 # `--fetch` needs; the real one is copied afterwards.
 COPY build.zig.zon ./
+COPY third_party/ third_party/
 RUN echo 'pub fn build(_: *@import("std").Build) void {}' > build.zig && \
     zig build --fetch=all
 
 COPY build.zig ./
 COPY src/ src/
+COPY html/ html/
 RUN zig build -Doptimize=ReleaseSafe
 
 FROM debian:stable-slim

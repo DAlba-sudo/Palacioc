@@ -1,0 +1,15 @@
+meta {
+  name: Delete Translation
+  type: http
+  seq: 4
+}
+
+delete {
+  url: {{baseUrl}}/api/translation/:id
+  body: none
+  auth: none
+}
+
+params:path {
+  id: 1
+}
