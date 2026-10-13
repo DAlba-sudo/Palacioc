@@ -101,6 +101,8 @@ newline; the role field suggests the roles already used plus `person`). The
 right pane lists/searches/creates/deletes conversations as cards, or, once a
 bubble is selected, shows its translation form and "Alternative Translations".
 
+A "Show messages in" toggle under the chat title (`lang=<code>`, only languages the conversation has translations in) renders the chat in that language: the newest translation per message, or the marked source text when a message has none. It is carried through every link and mutation; the composer still writes the source language.
+
 `GET /` and `GET /ui/conversation/:id?sel=<message>&leaf=<message>` render the
 shell: `sel` selects a message (the route passes through it and continues down
 first children), `leaf` pins the end of the route; both are deep-linkable. Every

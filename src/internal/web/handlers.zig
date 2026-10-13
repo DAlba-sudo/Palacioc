@@ -10,6 +10,8 @@ const c_sel = contract.Contract{ .key = "sel", .location = .Query };
 const c_leaf = contract.Contract{ .key = "leaf", .location = .Query };
 const b_sel = contract.Contract{ .key = "sel", .location = .Body };
 const b_leaf = contract.Contract{ .key = "leaf", .location = .Body };
+const c_lang = contract.Contract{ .key = "lang", .location = .Query };
+const b_lang = contract.Contract{ .key = "lang", .location = .Body };
 const c_via = contract.Contract{ .key = "via", .location = .Query };
 const c_cur = contract.Contract{ .key = "cur", .location = .Query };
 const c_edit = contract.Contract{ .key = "edit", .location = .Query };
@@ -34,12 +36,18 @@ fn optId(c: contract.Contract, req: *httpz.Request) ?i32 {
     return contract.parseId(c.opt(req) orelse return null);
 }
 
+/// A syntactically valid language code, else "" (source); the view then drops codes without translations.
+fn langOf(c: contract.Contract, req: *httpz.Request) []const u8 {
+    return validate.language(c.opt(req)) catch "";
+}
+
 fn stateOf(req: *httpz.Request, conv: i32) view.State {
     return .{
         .conv = conv,
         .sel = optId(c_sel, req),
         .leaf = optId(c_leaf, req),
         .via = optId(c_via, req),
+        .lang = langOf(c_lang, req),
         .edit = view.parseEdit(c_edit.opt(req) orelse ""),
         .q = std.mem.trim(u8, c_q.opt(req) orelse "", " \t\r\n"),
     };
@@ -66,8 +74,8 @@ fn show(app: App, req: *httpz.Request, res: *httpz.Response, state: view.State, 
     try render.send(app, res, "shell", !render.isFragment(req), status, try view.shell(a, input));
 }
 
-fn pushUrl(res: *httpz.Response, conv: i32, sel: ?i32, leaf: ?i32) !void {
-    res.header("HX-Push-Url", try view.url(res.arena, conv, sel, leaf, .none));
+fn pushUrl(res: *httpz.Response, conv: i32, sel: ?i32, leaf: ?i32, lang: []const u8) !void {
+    res.header("HX-Push-Url", try view.url(res.arena, conv, sel, leaf, .none, lang));
 }
 
 // -- conversations ---------------------------------------------------------
@@ -115,15 +123,16 @@ pub fn messageCreate(app: App, req: *httpz.Request, res: *httpz.Response) !void 
     var state = stateOf(req, conv);
     state.sel = optId(b_sel, req);
     state.leaf = optId(b_leaf, req);
+    state.lang = langOf(b_lang, req);
     const f = forms.message(req.formData() catch return error.ContractKeyNotFound);
     if (!forms.ok(f)) return show(app, req, res, state, .unprocessable_entity, .{ .composer = f });
 
     const route = try route_mod.resolve(a, try Message.listByConversation(p, a, conv), .{ .sel = state.sel, .leaf = state.leaf });
     const parent = route.sel orelse route.leaf;
     const created = try Message.create(p, a, conv, parent, f.role, f.content) orelse return error.NotFound;
-    try pushUrl(res, conv, created.id, created.id);
+    try pushUrl(res, conv, created.id, created.id, state.lang);
     res.header("HX-Trigger-After-Settle", chat_sent);
-    try show(app, req, res, .{ .conv = conv, .sel = created.id, .leaf = created.id }, .ok, .{});
+    try show(app, req, res, .{ .conv = conv, .sel = created.id, .leaf = created.id, .lang = state.lang }, .ok, .{});
 }
 
 fn messageById(app: App, res: *httpz.Response, id: i32) !types.Message {
@@ -155,8 +164,8 @@ pub fn messageDelete(app: App, req: *httpz.Request, res: *httpz.Response) !void 
     if (leaf) |l| {
         if (try Message.get(p, res.arena, l) == null) leaf = null;
     }
-    try pushUrl(res, m.conversation_id, m.parent_message_id, leaf);
-    try show(app, req, res, .{ .conv = m.conversation_id, .sel = m.parent_message_id, .leaf = leaf }, .ok, .{});
+    try pushUrl(res, m.conversation_id, m.parent_message_id, leaf, langOf(c_lang, req));
+    try show(app, req, res, .{ .conv = m.conversation_id, .sel = m.parent_message_id, .leaf = leaf, .lang = langOf(c_lang, req) }, .ok, .{});
 }
 
 // -- translations ----------------------------------------------------------

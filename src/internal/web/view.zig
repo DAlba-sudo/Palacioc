@@ -14,6 +14,8 @@ pub const State = struct {
     leaf: ?i32 = null,
     /// Branch switch: show the route through this message.
     via: ?i32 = null,
+    /// Language the chat shows ("" = source); only a code the conversation has translations in is kept.
+    lang: []const u8 = "",
     edit: Edit = .none,
     q: []const u8 = "",
 };
@@ -27,8 +29,15 @@ pub fn parseEdit(s: []const u8) Edit {
     return .none;
 }
 
-/// `/ui/conversation/<conv>` with `sel`, `leaf` and `edit` as query params when set.
-pub fn url(a: std.mem.Allocator, conv: i32, sel: ?i32, leaf: ?i32, edit: Edit) ![]const u8 {
+/// Appends `lang=<code>` (when set) after `sep`, which then becomes '&'. Codes are validated, so no escaping.
+fn langParam(w: *std.Io.Writer, sep: *u8, lang: []const u8) !void {
+    if (lang.len == 0) return;
+    try w.print("{c}lang={s}", .{ sep.*, lang });
+    sep.* = '&';
+}
+
+/// `/ui/conversation/<conv>` with `sel`, `leaf`, `edit` and `lang` as query params when set.
+pub fn url(a: std.mem.Allocator, conv: i32, sel: ?i32, leaf: ?i32, edit: Edit, lang: []const u8) ![]const u8 {
     var aw: std.Io.Writer.Allocating = .init(a);
     const w = &aw.writer;
     try w.print("/ui/conversation/{d}", .{conv});
@@ -43,26 +52,45 @@ pub fn url(a: std.mem.Allocator, conv: i32, sel: ?i32, leaf: ?i32, edit: Edit) !
     }
     switch (edit) {
         .none => {},
-        .message => try w.print("{c}edit=m", .{sep}),
-        .translation => |t| try w.print("{c}edit=t{d}", .{ sep, t }),
+        .message => {
+            try w.print("{c}edit=m", .{sep});
+            sep = '&';
+        },
+        .translation => |t| {
+            try w.print("{c}edit=t{d}", .{ sep, t });
+            sep = '&';
+        },
     }
+    try langParam(w, &sep, lang);
     return aw.written();
 }
 
-/// `/ui/conversation/<conv>?via=<message>[&sel=<message>]`: a branch switch.
-pub fn viaUrl(a: std.mem.Allocator, conv: i32, via: i32, sel: ?i32) ![]const u8 {
-    if (sel) |s| return std.fmt.allocPrint(a, "/ui/conversation/{d}?via={d}&sel={d}", .{ conv, via, s });
-    return std.fmt.allocPrint(a, "/ui/conversation/{d}?via={d}", .{ conv, via });
+/// `/ui/conversation/<conv>?via=<message>[&sel=<message>][&lang=..]`: a branch switch.
+pub fn viaUrl(a: std.mem.Allocator, conv: i32, via: i32, sel: ?i32, lang: []const u8) ![]const u8 {
+    var aw: std.Io.Writer.Allocating = .init(a);
+    const w = &aw.writer;
+    try w.print("/ui/conversation/{d}?via={d}", .{ conv, via });
+    var sep: u8 = '&';
+    if (sel) |s| try w.print("&sel={d}", .{s});
+    try langParam(w, &sep, lang);
+    return aw.written();
 }
 
-/// `?sel=..&leaf=..` for the mutation endpoints ("" when both are unset).
-pub fn stateQuery(a: std.mem.Allocator, sel: ?i32, leaf: ?i32) ![]const u8 {
+/// `?sel=..&leaf=..&lang=..` for the mutation endpoints ("" when all are unset).
+pub fn stateQuery(a: std.mem.Allocator, sel: ?i32, leaf: ?i32, lang: []const u8) ![]const u8 {
+    var aw: std.Io.Writer.Allocating = .init(a);
+    const w = &aw.writer;
+    var sep: u8 = '?';
     if (sel) |s| {
-        if (leaf) |l| return std.fmt.allocPrint(a, "?sel={d}&leaf={d}", .{ s, l });
-        return std.fmt.allocPrint(a, "?sel={d}", .{s});
+        try w.print("{c}sel={d}", .{ sep, s });
+        sep = '&';
     }
-    if (leaf) |l| return std.fmt.allocPrint(a, "?leaf={d}", .{l});
-    return "";
+    if (leaf) |l| {
+        try w.print("{c}leaf={d}", .{ sep, l });
+        sep = '&';
+    }
+    try langParam(w, &sep, lang);
+    return aw.written();
 }
 
 pub const RoleOpt = struct { name: []const u8 };
@@ -148,6 +176,60 @@ fn roleClass(messages: []const types.Message, role: []const u8) []const u8 {
     };
 }
 
+/// The language to show: the stored spelling of `raw` when this conversation has a
+/// translation in it, else "" (source).
+pub fn effectiveLang(translations: []const types.Translation, raw: []const u8) []const u8 {
+    if (raw.len == 0) return "";
+    for (translations) |t| {
+        if (std.ascii.eqlIgnoreCase(t.language, raw)) return t.language;
+    }
+    return "";
+}
+
+pub const Pick = struct {
+    /// Newest translation of the message in the language (by `updated_at`, then id).
+    tr: ?types.Translation = null,
+    /// How many translations the message has in the language.
+    count: usize = 0,
+};
+
+pub fn pickTranslation(translations: []const types.Translation, message_id: i32, lang: []const u8) Pick {
+    var p: Pick = .{};
+    for (translations) |t| {
+        if (t.message_id != message_id or !std.mem.eql(u8, t.language, lang)) continue;
+        p.count += 1;
+        if (p.tr) |best| {
+            if (t.updated_at < best.updated_at or (t.updated_at == best.updated_at and t.id < best.id)) continue;
+        }
+        p.tr = t;
+    }
+    return p;
+}
+
+pub const LangOpt = struct { code: []const u8, label: []const u8, id: []const u8, checked: []const u8 };
+
+/// "Source (<code>)" first, then each language with a translation in first-use order.
+pub fn languageOptions(a: std.mem.Allocator, translations: []const types.Translation, source: []const u8, active: []const u8) ![]const LangOpt {
+    var out: std.ArrayList(LangOpt) = .empty;
+    try out.append(a, .{
+        .code = "",
+        .label = try std.fmt.allocPrint(a, "Source ({s})", .{source}),
+        .id = "lang-opt-source",
+        .checked = if (active.len == 0) "checked" else "",
+    });
+    for (translations, 0..) |t, i| {
+        for (translations[0..i]) |prev| {
+            if (std.mem.eql(u8, prev.language, t.language)) break;
+        } else try out.append(a, .{
+            .code = t.language,
+            .label = t.language,
+            .id = try std.fmt.allocPrint(a, "lang-opt-{s}", .{t.language}),
+            .checked = if (std.mem.eql(u8, t.language, active)) "checked" else "",
+        });
+    }
+    return out.items;
+}
+
 pub const SibOpt = struct { label: []const u8, url: []const u8, cls: []const u8, current: []const u8 };
 
 pub const Bubble = struct {
@@ -173,6 +255,11 @@ pub const Bubble = struct {
     /// Translation count as a badge text ("2"), or "".
     badge: []const u8,
     badge_title: []const u8,
+    /// `lang` of the text element, the "source" tag of an untranslated fallback and the "+N" extra-alternatives mark.
+    text_lang: []const u8,
+    src_tag: []const u8,
+    more: []const u8,
+    title: []const u8,
 };
 
 pub const Card = struct {
@@ -195,6 +282,12 @@ pub const Shell = struct {
 
     // Chat pane.
     has_conv: bool,
+    chat_lang: []const u8,
+    source_code: []const u8,
+    has_toggle: bool,
+    lang_opts: []const LangOpt,
+    toggle_url: []const u8,
+    composer_lang: []const u8,
     conv_title: []const u8,
     bubbles: []const Bubble,
     empty_chat: bool,
@@ -273,6 +366,8 @@ pub fn shell(a: std.mem.Allocator, in: Input) !Shell {
     const route = try route_mod.resolve(a, in.messages, .{ .via = in.state.via, .sel = in.state.sel, .leaf = in.state.leaf });
     const sel = route.sel;
     const leaf = route.leaf;
+    const lang = effectiveLang(in.translations, in.state.lang);
+    const source: []const u8 = if (in.conv) |c| c.source_language else validate.default_language;
 
     // Replies below each message, for the delete confirmation (parents precede children).
     const replies = try a.alloc(usize, in.messages.len);
@@ -297,13 +392,17 @@ pub fn shell(a: std.mem.Allocator, in: Input) !Shell {
             if (t.message_id == m.id) n += 1;
         }
         const selected = sel != null and sel.? == m.id;
+        // In a translated view show the newest translation in that language, else the marked source text.
+        const pick: Pick = if (lang.len > 0) pickTranslation(in.translations, m.id, lang) else .{};
+        const missing = lang.len > 0 and pick.tr == null;
+        const shown_n = if (lang.len > 0) pick.count else n;
         const sibs = try a.alloc(SibOpt, if (s.count > 1) s.siblings.len else 0);
         for (sibs, 0..) |*o, k| {
             const sm = in.messages[s.siblings[k]];
             const here = sm.id == m.id;
             o.* = .{
                 .label = try std.fmt.allocPrint(a, "{d}. {s}: {s}", .{ k + 1, sm.role, try snippet(a, sm.content, 40) }),
-                .url = try viaUrl(a, conv_id, sm.id, sel),
+                .url = try viaUrl(a, conv_id, sm.id, sel, lang),
                 .cls = if (here) "sib here" else "sib",
                 .current = if (here) "true" else "false",
             };
@@ -311,14 +410,14 @@ pub fn shell(a: std.mem.Allocator, in: Input) !Shell {
         b.* = .{
             .id = m.id,
             .role = m.role,
-            .content = m.content,
-            .cls = if (selected) "bubble sel" else "bubble",
+            .content = if (pick.tr) |t| t.content else m.content,
+            .cls = if (selected and missing) "bubble sel untranslated" else if (selected) "bubble sel" else if (missing) "bubble untranslated" else "bubble",
             .role_cls = roleClass(in.messages, m.role),
             .selected = selected,
             .current = if (selected) "true" else "false",
-            .select_url = try url(a, conv_id, m.id, leaf, .none),
-            .edit_url = try url(a, conv_id, m.id, leaf, .message),
-            .delete_url = try std.fmt.allocPrint(a, "/ui/message/{d}{s}", .{ m.id, try stateQuery(a, null, leaf) }),
+            .select_url = try url(a, conv_id, m.id, leaf, .none, lang),
+            .edit_url = try url(a, conv_id, m.id, leaf, .message, lang),
+            .delete_url = try std.fmt.allocPrint(a, "/ui/message/{d}{s}", .{ m.id, try stateQuery(a, null, leaf, lang) }),
             .delete_confirm = switch (replies[s.index]) {
                 0 => "Delete this message?",
                 1 => "Delete this message and its 1 reply?",
@@ -326,17 +425,26 @@ pub fn shell(a: std.mem.Allocator, in: Input) !Shell {
             },
             .fork = s.count > 1,
             .fork_label = try std.fmt.allocPrint(a, "Branch {d} of {d}", .{ s.pos, s.count }),
-            .prev_url = if (s.prev) |p| try viaUrl(a, conv_id, p, sel) else "",
-            .next_url = if (s.next) |nx| try viaUrl(a, conv_id, nx, sel) else "",
+            .prev_url = if (s.prev) |p| try viaUrl(a, conv_id, p, sel, lang) else "",
+            .next_url = if (s.next) |nx| try viaUrl(a, conv_id, nx, sel, lang) else "",
             .prev_attr = if (s.prev == null) "disabled" else "",
             .next_attr = if (s.next == null) "disabled" else "",
             .sibs = sibs,
-            .badge = if (n == 0) "" else try std.fmt.allocPrint(a, "{d}", .{n}),
+            .badge = if (shown_n == 0) "" else try std.fmt.allocPrint(a, "{d}", .{shown_n}),
             .badge_title = switch (n) {
                 0 => "",
                 1 => "1 translation",
                 else => try std.fmt.allocPrint(a, "{d} translations", .{n}),
             },
+            .text_lang = if (pick.tr != null) lang else source,
+            .src_tag = if (missing) "source" else "",
+            .more = if (pick.count > 1) try std.fmt.allocPrint(a, "+{d}", .{pick.count - 1}) else "",
+            .title = if (missing)
+                try std.fmt.allocPrint(a, "No {s} translation yet", .{lang})
+            else if (pick.count > 1)
+                try std.fmt.allocPrint(a, "{d} translations in {s}; see the panel", .{ pick.count, lang })
+            else
+                "",
         };
     }
 
@@ -366,8 +474,8 @@ pub fn shell(a: std.mem.Allocator, in: Input) !Shell {
             .language = t.language,
             .content = t.content,
             .cls = if (edit_here) "editing" else "",
-            .edit_url = try url(a, conv_id, sm.id, leaf, .{ .translation = t.id }),
-            .delete_url = try std.fmt.allocPrint(a, "/ui/translation/{d}{s}", .{ t.id, try stateQuery(a, sm.id, leaf) }),
+            .edit_url = try url(a, conv_id, sm.id, leaf, .{ .translation = t.id }, lang),
+            .delete_url = try std.fmt.allocPrint(a, "/ui/translation/{d}{s}", .{ t.id, try stateQuery(a, sm.id, leaf, lang) }),
         };
         trs_total += 1;
         var found = false;
@@ -393,10 +501,11 @@ pub fn shell(a: std.mem.Allocator, in: Input) !Shell {
     const edit_msg_mode = sel_msg != null and in.state.edit == .message;
     const translate_mode = sel_msg != null and !edit_msg_mode;
     const sm_id: i32 = if (sel_msg) |m| m.id else 0;
-    const q_sel = try stateQuery(a, sel, leaf);
+    const q_sel = try stateQuery(a, sel, leaf, lang);
+    const lang_opts = try languageOptions(a, in.translations, source, lang);
 
     const tr_in = in.tr orelse forms.TranslationForm{
-        .language = if (editing) |e| e.language else if (latest) |l| l.language else "",
+        .language = if (editing) |e| e.language else if (lang.len > 0) lang else if (latest) |l| l.language else "",
         .content = if (editing) |e| e.content else "",
     };
     const em_in = in.edit_msg orelse forms.MessageForm{
@@ -418,7 +527,7 @@ pub fn shell(a: std.mem.Allocator, in: Input) !Shell {
                 .language = c.source_language,
                 .cls = if (c.id == conv_id) "card sel" else "card",
                 .open_url = try std.fmt.allocPrint(a, "/ui/conversation/{d}", .{c.id}),
-                .delete_url = try std.fmt.allocPrint(a, "/ui/conversation/{d}{s}", .{ c.id, try curQuery(a, conv_id, sel, leaf) }),
+                .delete_url = try std.fmt.allocPrint(a, "/ui/conversation/{d}{s}", .{ c.id, try curQuery(a, conv_id, sel, leaf, lang) }),
             };
             at += 1;
         }
@@ -428,6 +537,12 @@ pub fn shell(a: std.mem.Allocator, in: Input) !Shell {
         .pane = if (in.conv == null or sel_msg != null) "work" else "chat",
 
         .has_conv = in.conv != null,
+        .chat_lang = if (lang.len > 0) lang else source,
+        .source_code = source,
+        .has_toggle = lang_opts.len > 1,
+        .lang_opts = lang_opts,
+        .toggle_url = try url(a, conv_id, sel, leaf, .none, ""),
+        .composer_lang = lang,
         .conv_title = if (in.conv) |c| c.title else "",
         .bubbles = bubbles,
         .empty_chat = bubbles.len == 0,
@@ -442,21 +557,21 @@ pub fn shell(a: std.mem.Allocator, in: Input) !Shell {
         .chip = sel_msg != null,
         .chip_label = if (sel != null and leaf != null and sel.? != leaf.?) "Branching from" else "Replying to",
         .chip_text = if (sel_msg) |m| try snippet(a, m.content, snippet_len) else "",
-        .chip_clear_url = try url(a, conv_id, null, leaf, .none),
+        .chip_clear_url = try url(a, conv_id, null, leaf, .none, lang),
 
         .mode_cards = sel_msg == null,
         .mode_translate = translate_mode,
         .mode_edit_msg = edit_msg_mode,
 
         .q = in.state.q,
-        .search_url = if (in.conv != null) try url(a, conv_id, null, leaf, .none) else "/",
+        .search_url = if (in.conv != null) try url(a, conv_id, null, leaf, .none, lang) else "/",
         .cards = cards,
         .cards_empty = cards.len == 0,
         .form = in.conv_form orelse .{ .language = validate.default_language },
         .new_open = if (in.conv_form != null) "open" else "",
 
-        .back_url = if (in.conv != null) try url(a, conv_id, null, leaf, .none) else "/",
-        .cancel_url = try url(a, conv_id, sel, leaf, .none),
+        .back_url = if (in.conv != null) try url(a, conv_id, null, leaf, .none, lang) else "/",
+        .cancel_url = try url(a, conv_id, sel, leaf, .none, lang),
         .sel_role = if (sel_msg) |m| m.role else "",
         .sel_content = if (sel_msg) |m| m.content else "",
         .sel_role_cls = if (sel_msg) |m| roleClass(in.messages, m.role) else "r0",
@@ -476,7 +591,7 @@ pub fn shell(a: std.mem.Allocator, in: Input) !Shell {
         .groups = groups.items,
         .trs_empty = trs_total == 0,
 
-        .em_action = try std.fmt.allocPrint(a, "/ui/message/{d}{s}", .{ sm_id, try stateQuery(a, null, leaf) }),
+        .em_action = try std.fmt.allocPrint(a, "/ui/message/{d}{s}", .{ sm_id, try stateQuery(a, null, leaf, lang) }),
         .em_role = em_in.role,
         .em_content = em_in.content,
         .err_em_role = em_in.err_role,
@@ -485,12 +600,14 @@ pub fn shell(a: std.mem.Allocator, in: Input) !Shell {
 }
 
 /// `?cur=<open conversation>&sel=..&leaf=..` so deleting another card keeps the open one.
-fn curQuery(a: std.mem.Allocator, conv: i32, sel: ?i32, leaf: ?i32) ![]const u8 {
+fn curQuery(a: std.mem.Allocator, conv: i32, sel: ?i32, leaf: ?i32, lang: []const u8) ![]const u8 {
     if (conv == 0) return "";
     var aw: std.Io.Writer.Allocating = .init(a);
     try aw.writer.print("?cur={d}", .{conv});
     if (sel) |v| try aw.writer.print("&sel={d}", .{v});
     if (leaf) |v| try aw.writer.print("&leaf={d}", .{v});
+    var sep: u8 = '&';
+    try langParam(&aw.writer, &sep, lang);
     return aw.written();
 }
 
@@ -526,10 +643,15 @@ test "urls and edit parsing" {
     var arena: std.heap.ArenaAllocator = .init(std.testing.allocator);
     defer arena.deinit();
     const a = arena.allocator();
-    try std.testing.expectEqualStrings("/ui/conversation/3", try url(a, 3, null, null, .none));
-    try std.testing.expectEqualStrings("/ui/conversation/3?sel=4&leaf=9&edit=t5", try url(a, 3, 4, 9, .{ .translation = 5 }));
-    try std.testing.expectEqualStrings("/ui/conversation/3?leaf=9&edit=m", try url(a, 3, null, 9, .message));
-    try std.testing.expectEqualStrings("?leaf=9", try stateQuery(a, null, 9));
+    try std.testing.expectEqualStrings("/ui/conversation/3", try url(a, 3, null, null, .none, ""));
+    try std.testing.expectEqualStrings("/ui/conversation/3?sel=4&leaf=9&edit=t5", try url(a, 3, 4, 9, .{ .translation = 5 }, ""));
+    try std.testing.expectEqualStrings("/ui/conversation/3?leaf=9&edit=m", try url(a, 3, null, 9, .message, ""));
+    try std.testing.expectEqualStrings("?leaf=9", try stateQuery(a, null, 9, ""));
+    try std.testing.expectEqualStrings("/ui/conversation/3?sel=4&leaf=9&edit=m&lang=es", try url(a, 3, 4, 9, .message, "es"));
+    try std.testing.expectEqualStrings("/ui/conversation/3?via=7&sel=4&lang=es", try viaUrl(a, 3, 7, 4, "es"));
+    try std.testing.expectEqualStrings("/ui/conversation/3?via=7", try viaUrl(a, 3, 7, null, ""));
+    try std.testing.expectEqualStrings("?leaf=9&lang=es", try stateQuery(a, null, 9, "es"));
+    try std.testing.expectEqualStrings("?lang=es", try stateQuery(a, null, null, "es"));
     try std.testing.expectEqual(Edit.message, parseEdit("m"));
     try std.testing.expectEqual(@as(i32, 12), parseEdit("t12").translation);
     try std.testing.expectEqual(Edit.none, parseEdit("t0"));
@@ -613,4 +735,71 @@ test "shell: route bubbles, fork bar, modes, language seed, grouping" {
     const none = try shell(a, .{ .state = .{} });
     try std.testing.expectEqualStrings("hidden", none.composer_hidden);
     try std.testing.expect(none.empty_chat and none.mode_cards);
+}
+
+fn tr(id: i32, message_id: i32, language: []const u8, content: []const u8, updated: i64) types.Translation {
+    return .{ .id = id, .message_id = message_id, .language = language, .content = content, .created_at = 0, .updated_at = updated };
+}
+
+test "pickTranslation: newest by updated_at then id; effectiveLang and languageOptions" {
+    var arena: std.heap.ArenaAllocator = .init(std.testing.allocator);
+    defer arena.deinit();
+    const a = arena.allocator();
+    const trs = [_]types.Translation{
+        tr(1, 1, "es", "old", 5),
+        tr(2, 1, "fr", "fr1", 1),
+        tr(3, 1, "es", "new", 9),
+        tr(4, 1, "es", "tie-high", 9),
+        tr(5, 2, "fr", "other", 1),
+    };
+    const p = pickTranslation(&trs, 1, "es");
+    try std.testing.expectEqualStrings("tie-high", p.tr.?.content); // same updated_at: the higher id wins
+    try std.testing.expectEqual(@as(usize, 3), p.count);
+    try std.testing.expect(pickTranslation(&trs, 2, "es").tr == null);
+
+    try std.testing.expectEqualStrings("es", effectiveLang(&trs, "ES"));
+    try std.testing.expectEqualStrings("", effectiveLang(&trs, "de")); // unused
+    try std.testing.expectEqualStrings("", effectiveLang(&trs, ""));
+
+    const opts = try languageOptions(a, &trs, "en", "fr");
+    try std.testing.expectEqual(@as(usize, 3), opts.len);
+    try std.testing.expectEqualStrings("Source (en)", opts[0].label);
+    try std.testing.expectEqualStrings("es", opts[1].code);
+    try std.testing.expectEqualStrings("checked", opts[2].checked);
+    try std.testing.expectEqualStrings("", opts[0].checked);
+}
+
+test "shell in a translated language: picks, fallback marking, +N, threads lang" {
+    var arena: std.heap.ArenaAllocator = .init(std.testing.allocator);
+    defer arena.deinit();
+    const a = arena.allocator();
+    const conv: types.Conversation = .{ .id = 1, .title = "T", .description = "", .source_language = "en", .created_at = 0, .updated_at = 0 };
+    const ms = [_]types.Message{ msg(1, null, "a"), msg(2, 1, "b"), msg(3, 1, "b") };
+    const trs = [_]types.Translation{ tr(1, 1, "es", "uno", 1), tr(2, 1, "es", "uno bis", 2), tr(3, 3, "fr", "trois", 1) };
+
+    const es = try shell(a, .{ .state = .{ .lang = "es" }, .conv = conv, .messages = &ms, .translations = &trs });
+    try std.testing.expectEqualStrings("uno bis", es.bubbles[0].content);
+    try std.testing.expectEqualStrings("+1", es.bubbles[0].more);
+    try std.testing.expectEqualStrings("2 translations in es; see the panel", es.bubbles[0].title);
+    try std.testing.expectEqualStrings("2", es.bubbles[0].badge);
+    try std.testing.expectEqualStrings("es", es.bubbles[0].text_lang);
+    try std.testing.expectEqualStrings("bubble untranslated", es.bubbles[1].cls);
+    try std.testing.expectEqualStrings("source", es.bubbles[1].src_tag);
+    try std.testing.expectEqualStrings("No es translation yet", es.bubbles[1].title);
+    try std.testing.expectEqualStrings("en", es.bubbles[1].text_lang);
+    try std.testing.expectEqualStrings("/ui/conversation/1?via=3&lang=es", es.bubbles[1].next_url);
+    try std.testing.expectEqualStrings("/ui/conversation/1?sel=2&leaf=2&lang=es", es.bubbles[1].select_url);
+    try std.testing.expectEqualStrings("es", es.composer_lang);
+    try std.testing.expectEqualStrings("es", es.chat_lang);
+    try std.testing.expect(es.has_toggle);
+
+    const none = try shell(a, .{ .state = .{ .lang = "xx" }, .conv = conv, .messages = &ms, .translations = &trs });
+    try std.testing.expectEqualStrings("", none.composer_lang);
+    try std.testing.expectEqualStrings("en", none.chat_lang);
+    try std.testing.expectEqualStrings("bubble", none.bubbles[1].cls);
+
+    const picked = try shell(a, .{ .state = .{ .sel = 1, .lang = "fr" }, .conv = conv, .messages = &ms, .translations = &trs });
+    try std.testing.expectEqualStrings("fr", picked.tr_language); // prefilled with the active language
+
+    try std.testing.expect(!(try shell(a, .{ .state = .{}, .conv = conv, .messages = &ms })).has_toggle);
 }

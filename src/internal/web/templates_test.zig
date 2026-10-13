@@ -79,3 +79,33 @@ test "shell renders conversations mode, translation mode and edit modes" {
     try contains(home, "Open a conversation to start.");
     try contains(home, "disabled");
 }
+
+test "shell in a translated language renders the toggle, marked fallback and lang attributes" {
+    var arena: std.heap.ArenaAllocator = .init(std.testing.allocator);
+    defer arena.deinit();
+    const a = arena.allocator();
+    const conv: types.Conversation = .{ .id = 1, .title = "T", .description = "", .source_language = "en", .created_at = 0, .updated_at = 0 };
+    const ms = [_]types.Message{ msg(1, null, "a", "Hello"), msg(2, 1, "b", "Bye"), msg(3, 1, "b", "Other") };
+    const trs = [_]types.Translation{
+        .{ .id = 1, .message_id = 1, .language = "es", .content = "Hola <b>", .created_at = 0, .updated_at = 1 },
+        .{ .id = 2, .message_id = 1, .language = "es", .content = "Buenas", .created_at = 0, .updated_at = 2 },
+        .{ .id = 3, .message_id = 2, .language = "fr", .content = "Salut", .created_at = 0, .updated_at = 1 },
+    };
+    const out = try render.renderAlloc(std.testing.io, a, "shell", false, try view.shell(a, .{ .state = .{ .lang = "es", .sel = 1 }, .conv = conv, .messages = &ms, .translations = &trs }));
+    try contains(out, "<legend>Show messages in</legend>");
+    try contains(out, "value=\"es\" checked");
+    try contains(out, "Source (en)");
+    try contains(out, "<span lang=\"es\">Buenas</span>"); // newest of two es translations
+    try contains(out, "<span class=\"more\">+1</span>");
+    try contains(out, "id=\"chat-log\" class=\"chat-log\" lang=\"es\"");
+    try contains(out, "name=\"lang\" value=\"es\""); // composer keeps the language
+    try contains(out, "/ui/conversation/1?sel=1&amp;leaf=2&amp;lang=es");
+    try absent(out, "Hola <b>");
+
+    const source = try render.renderAlloc(std.testing.io, a, "shell", false, try view.shell(a, .{ .state = .{ .lang = "fr" }, .conv = conv, .messages = &ms, .translations = &trs }));
+    try contains(source, "<span lang=\"fr\">Salut</span>"); // route 1 -> 2; only message 2 has a fr translation
+    try contains(source, "<span lang=\"en\">Hello</span>");
+    try contains(source, "class=\"bubble untranslated\""); // message 1 lacks fr
+    try contains(source, "<span class=\"src-tag\">source</span>");
+    try contains(source, "title=\"No fr translation yet\"");
+}

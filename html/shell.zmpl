@@ -1,4 +1,4 @@
-<div id="shell" class="shell" data-pane="{{$.pane}}" hx-target="#work" hx-select="#work" hx-select-oob="#chat-log,#composer-meta" hx-swap="outerHTML" hx-push-url="false">
+<div id="shell" class="shell" data-pane="{{$.pane}}" hx-target="#work" hx-select="#work" hx-select-oob="#chat-log,#composer-meta,#lang-toggle" hx-swap="outerHTML" hx-push-url="false">
 <nav class="tabs" aria-label="Panes">
 <button type="button" data-pane="chat" aria-pressed="true">Chat</button>
 <button type="button" data-pane="work" aria-pressed="false">Work</button>
@@ -11,8 +11,18 @@
 @else
 <h1>Palacioc</h1>
 @end
+<div id="lang-toggle" class="lang-toggle-wrap">
+@if ($.has_toggle)
+<fieldset class="lang-toggle">
+<legend>Show messages in</legend>
+@for ($.lang_opts) |o| {
+<label><input type="radio" id="{{o.id}}" name="lang" value="{{o.code}}" {{o.checked}} hx-get="{{$.toggle_url}}" hx-trigger="change" hx-push-url="true"><span>{{o.label}}</span></label>
+}
+</fieldset>
+@end
+</div>
 </header>
-<div id="chat-log" class="chat-log" aria-live="polite">
+<div id="chat-log" class="chat-log" lang="{{$.chat_lang}}" aria-live="polite">
 @if ($.empty_chat)
 <p class="empty">{{$.empty_text}}</p>
 @end
@@ -37,7 +47,7 @@
 </div>
 @end
 <div class="msg {{b.role_cls}}">
-<button type="button" class="{{b.cls}}" aria-current="{{b.current}}" data-pane="work" hx-get="{{b.select_url}}" hx-push-url="true">{{b.content}}</button>
+<button type="button" class="{{b.cls}}" aria-current="{{b.current}}" data-pane="work" hx-get="{{b.select_url}}" title="{{b.title}}" hx-push-url="true"><span lang="{{b.text_lang}}">{{b.content}}</span><span class="src-tag">{{b.src_tag}}</span><span class="more">{{b.more}}</span></button>
 <div class="msg-meta">
 <span class="author">{{b.role}}</span>
 <span class="badge" title="{{b.badge_title}}">{{b.badge}}</span>
@@ -56,6 +66,8 @@
 <div id="composer-meta" class="composer-meta">
 <input type="hidden" name="sel" value="{{$.composer_sel}}">
 <input type="hidden" name="leaf" value="{{$.composer_leaf}}">
+<input type="hidden" name="lang" value="{{$.composer_lang}}">
+<span class="src-hint">Writes in {{$.source_code}}</span>
 @if ($.chip)
 <span class="chip">{{$.chip_label}}: {{$.chip_text}} <button type="button" class="link" aria-label="Reply to the end of the route instead" hx-get="{{$.chip_clear_url}}" hx-push-url="true">&times;</button></span>
 @end
