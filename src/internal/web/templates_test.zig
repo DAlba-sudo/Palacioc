@@ -1,7 +1,7 @@
-//! Renders every page/fragment template with sample view models, so a template
-//! that no longer matches its view model fails here rather than at request time.
+//! Renders the shell template from the view builder, so a template that no
+//! longer matches its view model fails here rather than at request time.
 const std = @import("std");
-const forms = @import("forms.zig");
+const types = @import("../types/root.zig");
 const render = @import("render.zig");
 const view = @import("view.zig");
 
@@ -12,43 +12,61 @@ fn contains(hay: []const u8, needle: []const u8) !void {
     }
 }
 
-test "templates render with their view models" {
+fn absent(hay: []const u8, needle: []const u8) !void {
+    if (std.mem.indexOf(u8, hay, needle) != null) {
+        std.debug.print("unexpected {s} in:\n{s}\n", .{ needle, hay });
+        return error.TestUnexpectedContains;
+    }
+}
+
+fn msg(id: i32, parent: ?i32, role: []const u8, content: []const u8) types.Message {
+    return .{ .id = id, .conversation_id = 1, .parent_message_id = parent, .role = role, .content = content, .created_at = 0, .updated_at = 0 };
+}
+
+test "shell renders conversations mode, translation mode and edit modes" {
     var arena: std.heap.ArenaAllocator = .init(std.testing.allocator);
     defer arena.deinit();
     const a = arena.allocator();
     const io = std.testing.io;
 
-    const items = [_]view.ConvItem{.{ .id = 4, .title = "<Cafe>", .description = "d", .language = "es" }};
-    const list: view.ConvList = .{ .q = "", .items = &items, .next = 10, .more = true, .empty = false };
-    const form: forms.ConversationForm = .{ .title = "", .err_title = "Title is required.", .language = "en" };
-    const home = try render.renderAlloc(io, a, "home", true, .{ .list = list, .form = form });
-    try contains(home, "&lt;Cafe&gt;");
-    try contains(home, "Title is required.");
-    try contains(home, "\"p\": 10");
-    try contains(home, "<!doctype html>");
-    try contains(try render.renderAlloc(io, a, "list_fragment", false, .{ .list = list }), "/ui/conversation/4");
+    const conv: types.Conversation = .{ .id = 1, .title = "<Cafe>", .description = "desc & more", .source_language = "es", .created_at = 0, .updated_at = 0 };
+    const ms = [_]types.Message{ msg(1, null, "waiter", "Hola <b>"), msg(2, 1, "guest", "Un cafe"), msg(3, 1, "guest", "Agua") };
+    const trs = [_]types.Translation{.{ .id = 7, .message_id = 1, .language = "en", .content = "Hello", .created_at = 0, .updated_at = 0 }};
 
-    const trs = [_]view.TrView{.{ .id = 9, .language = "en", .content = "Hello" }};
-    const rows = [_]view.Row{
-        .{ .id = 1, .depth = 0, .role = "person", .content = "Hola", .translations = &trs },
-        .{ .id = 2, .depth = 1, .role = "other", .content = "Que?", .translations = &.{} },
-    };
-    const page: view.TreePage = .{ .conv = view.convItem(.{ .id = 4, .title = "T", .description = "", .source_language = "es", .created_at = 0, .updated_at = 0 }), .rows = &rows, .empty = false };
-    const conv = try render.renderAlloc(io, a, "conversation_page", false, .{ .page = page });
-    try contains(conv, "id=\"panel\"");
-    try contains(conv, "--depth: 1");
-    try contains(conv, "/ui/translation/9/edit");
-    try contains(try render.renderAlloc(io, a, "tree_fragment", false, .{ .page = page }), "hx-trigger=\"tree-changed from:body\"");
+    // Conversations mode: cards (escaped, selected), branch switcher, datalist, composer.
+    const cards = try render.renderAlloc(io, a, "shell", true, try view.shell(a, .{ .state = .{ .conv = 1 }, .conv = conv, .messages = &ms, .translations = &trs, .cards = &.{conv} }));
+    try contains(cards, "<!doctype html>");
+    try contains(cards, "&lt;Cafe&gt;");
+    try contains(cards, "class=\"card sel\"");
+    try contains(cards, "<h1>Conversations</h1>");
+    try contains(cards, "Hola &lt;b&gt;");
+    try contains(cards, "1 translation");
+    try contains(cards, "<span>1/2</span>"); // guest: first of two siblings
+    try contains(cards, "<option value=\"guest\">");
+    try contains(cards, "<option value=\"person\">");
+    try contains(cards, "id=\"compose-text\"");
+    try absent(cards, "Alternative Translations");
 
-    const msg: view.MsgView = .{ .id = 1, .role = "person", .content = "Hola" };
-    const menu = try render.renderAlloc(io, a, "message_menu", false, .{ .msg = msg });
-    for ([_][]const u8{ "Add a translation", "Add a new message (new branch)", "Edit", "Delete" }) |label| try contains(menu, label);
-    try contains(try render.renderAlloc(io, a, "route_panel", false, .{ .msg = msg, .steps = @as([]const view.Row, &rows) }), "Hello");
+    // Translation mode for message 1, bare (htmx) response without layout.
+    const tr = try render.renderAlloc(io, a, "shell", false, try view.shell(a, .{ .state = .{ .conv = 1, .sel = 1, .leaf = 2 }, .conv = conv, .messages = &ms, .translations = &trs }));
+    try absent(tr, "<!doctype html>");
+    try contains(tr, "class=\"bubble sel\"");
+    try contains(tr, "Alternative Translations");
+    try contains(tr, "Enter a new translation here...");
+    try contains(tr, "hx-post=\"/ui/message/1/translations?sel=1&amp;leaf=2\"");
+    try contains(tr, "name=\"sel\" value=\"1\"");
+    try contains(tr, "Replying to: Hola &lt;b&gt;");
+    try absent(tr, "<h1>Conversations</h1>");
 
-    const mf = view.messageForm(.{ .parent_id = 1, .content = "", .err_content = "Content is required." }, false, 0, "Hola");
-    try contains(try render.renderAlloc(io, a, "message_form", false, .{ .form = mf }), "name=\"parent_message_id\" value=\"1\"");
-    const mf_edit = view.messageForm(.{ .content = "x" }, true, 7, "");
-    try contains(try render.renderAlloc(io, a, "message_form", false, .{ .form = mf_edit }), "hx-put=\"/ui/message/7\"");
-    const tf = view.translationForm(.{ .err_language = "bad" }, false, 0, 1, "Hola");
-    try contains(try render.renderAlloc(io, a, "translation_form", false, .{ .form = tf }), "bad");
+    // Edit translation prefills and PUTs; edit message shows its form.
+    const et = try render.renderAlloc(io, a, "shell", false, try view.shell(a, .{ .state = .{ .conv = 1, .sel = 1, .edit = .{ .translation = 7 } }, .conv = conv, .messages = &ms, .translations = &trs }));
+    try contains(et, "hx-put=\"/ui/translation/7?sel=1&amp;leaf=2\"");
+    try contains(et, ">Hello</textarea>");
+    const em = try render.renderAlloc(io, a, "shell", false, try view.shell(a, .{ .state = .{ .conv = 1, .sel = 2, .edit = .message }, .conv = conv, .messages = &ms }));
+    try contains(em, "Edit message");
+
+    // Home: no conversation, composer disabled.
+    const home = try render.renderAlloc(io, a, "shell", false, try view.shell(a, .{ .state = .{} }));
+    try contains(home, "Open a conversation to start.");
+    try contains(home, "disabled");
 }

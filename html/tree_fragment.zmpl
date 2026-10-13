@@ -1,1 +1,0 @@
-@partial tree($.page)

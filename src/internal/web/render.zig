@@ -37,6 +37,7 @@ pub fn flash(res: *httpz.Response, status: std.http.Status, msg: []const u8) voi
     res.content_type = .HTML;
     res.header("HX-Retarget", "#flash");
     res.header("HX-Reswap", "innerHTML");
+    res.header("HX-Reselect", ".flash"); // overrides an inherited hx-select
     res.body = flashBody(res.arena, msg) catch "<div class=\"flash error\">Error.</div>";
 }
 
@@ -93,5 +94,6 @@ test "isFragment and flash" {
     try ht.expectStatus(503);
     try ht.expectHeader("HX-Retarget", "#flash");
     try ht.expectHeader("HX-Reswap", "innerHTML");
+    try ht.expectHeader("HX-Reselect", ".flash");
     try ht.expectBody("<div class=\"flash error\">db &lt;down&gt;</div>");
 }

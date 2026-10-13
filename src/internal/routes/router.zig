@@ -23,27 +23,15 @@ pub fn register(server: *Server) !void {
     r.delete("/api/translation/:id", api.translation.delete, .{});
 
     r.get("/", web.handlers.home, .{});
-    r.get("/ui/conversations", web.handlers.list, .{});
-    r.post("/ui/conversations", web.handlers.createConversation, .{});
     r.get("/ui/conversation/:id", web.handlers.conversationPage, .{});
-    r.get("/ui/conversation/:id/tree", web.handlers.tree, .{});
+    r.post("/ui/conversations", web.handlers.createConversation, .{});
     r.delete("/ui/conversation/:id", web.handlers.deleteConversation, .{});
-
-    r.get("/ui/message/new", web.handlers.messageNew, .{});
-    r.post("/ui/message", web.handlers.messageCreate, .{});
-    r.get("/ui/message/:id/menu", web.handlers.messageMenu, .{});
-    r.get("/ui/message/:id/route", web.handlers.messageRoute, .{});
-    r.get("/ui/message/:id/edit", web.handlers.messageEdit, .{});
+    r.post("/ui/conversation/:id/messages", web.handlers.messageCreate, .{});
     r.put("/ui/message/:id", web.handlers.messageUpdate, .{});
     r.delete("/ui/message/:id", web.handlers.messageDelete, .{});
-
-    r.get("/ui/translation/new", web.handlers.translationNew, .{});
-    r.post("/ui/translation", web.handlers.translationCreate, .{});
-    r.get("/ui/translation/:id/edit", web.handlers.translationEdit, .{});
+    r.post("/ui/message/:id/translations", web.handlers.translationCreate, .{});
     r.put("/ui/translation/:id", web.handlers.translationUpdate, .{});
     r.delete("/ui/translation/:id", web.handlers.translationDelete, .{});
-
-    r.get("/ui/panel/close", web.handlers.panelClose, .{});
     r.get(web.static.htmx_path, web.static.htmxJs, .{});
     r.get(web.static.css_path, web.static.appCss, .{});
 }
