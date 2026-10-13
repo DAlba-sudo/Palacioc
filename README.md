@@ -94,10 +94,19 @@ cached layers let source changes rebuild offline.
 
 ## UI
 
-`GET /` lists/searches/creates conversations; `GET /ui/conversation/:id` shows
-the tree. Click a message for its panel: add a translation, add a new message
-(new branch), edit, delete, show route. Full-page loads render `html/layout.zmpl`;
-htmx requests (`HX-Request: true`) get fragments. Everything else is under `/ui/...`.
+A two-pane shell. The left pane is the current *route* (one root-to-leaf path) as
+a chat, with the author (`role`) under each bubble, a `‹ i/n ›` switcher on
+messages that have siblings, and a composer (Enter sends, Shift+Enter adds a
+newline; the role field suggests the roles already used plus `person`). The
+right pane lists/searches/creates/deletes conversations as cards, or, once a
+bubble is selected, shows its translation form and "Alternative Translations".
+
+`GET /` and `GET /ui/conversation/:id?sel=<message>&leaf=<message>` render the
+shell: `sel` selects a message (the route passes through it and continues down
+first children), `leaf` pins the end of the route; both are deep-linkable. Every
+`/ui/...` response is the whole shell: a plain navigation gets it inside
+`html/layout.zmpl`, an htmx request gets it bare and the client keeps the parts
+it needs (`hx-select`/`hx-select-oob`), so the composer draft survives updates.
 
 ## JSON API
 
