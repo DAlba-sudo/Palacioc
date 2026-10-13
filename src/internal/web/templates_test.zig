@@ -36,12 +36,18 @@ test "shell renders conversations mode, translation mode and edit modes" {
     // Conversations mode: cards (escaped, selected), branch switcher, datalist, composer.
     const cards = try render.renderAlloc(io, a, "shell", true, try view.shell(a, .{ .state = .{ .conv = 1 }, .conv = conv, .messages = &ms, .translations = &trs, .cards = &.{conv} }));
     try contains(cards, "<!doctype html>");
+    try std.testing.expectEqual(@as(usize, 1), std.mem.count(u8, cards, "id=\"shell\""));
     try contains(cards, "&lt;Cafe&gt;");
     try contains(cards, "class=\"card sel\"");
     try contains(cards, "<h1>Conversations</h1>");
     try contains(cards, "Hola &lt;b&gt;");
-    try contains(cards, "1 translation");
-    try contains(cards, "<span>1/2</span>"); // guest: first of two siblings
+    try contains(cards, "title=\"1 translation\"");
+    try contains(cards, "Branch 1 of 2"); // the guest replies fork under message 1
+    try contains(cards, "2. guest: Agua"); // the other branch is previewed
+    try contains(cards, "/ui/conversation/1?via=3");
+    try contains(cards, "Delete this message and its 2 replies?");
+    try contains(cards, "data-pane=\"chat\"");
+    try absent(cards, "Branch from here"); // only on the selected bubble
     try contains(cards, "<option value=\"guest\">");
     try contains(cards, "<option value=\"person\">");
     try contains(cards, "id=\"compose-text\"");
@@ -55,7 +61,10 @@ test "shell renders conversations mode, translation mode and edit modes" {
     try contains(tr, "Enter a new translation here...");
     try contains(tr, "hx-post=\"/ui/message/1/translations?sel=1&amp;leaf=2\"");
     try contains(tr, "name=\"sel\" value=\"1\"");
-    try contains(tr, "Replying to: Hola &lt;b&gt;");
+    try contains(tr, "Branching from: Hola &lt;b&gt;");
+    try contains(tr, "Branch from here");
+    try contains(tr, "<datalist id=\"langs\">");
+    try contains(tr, "<span class=\"lang\">en</span>");
     try absent(tr, "<h1>Conversations</h1>");
 
     // Edit translation prefills and PUTs; edit message shows its form.

@@ -10,11 +10,15 @@ const c_sel = contract.Contract{ .key = "sel", .location = .Query };
 const c_leaf = contract.Contract{ .key = "leaf", .location = .Query };
 const b_sel = contract.Contract{ .key = "sel", .location = .Body };
 const b_leaf = contract.Contract{ .key = "leaf", .location = .Body };
+const c_via = contract.Contract{ .key = "via", .location = .Query };
+const c_cur = contract.Contract{ .key = "cur", .location = .Query };
 const c_edit = contract.Contract{ .key = "edit", .location = .Query };
 const c_q = contract.Contract{ .key = "q", .location = .Query };
 
 /// Event the composer listens to: clear, focus and scroll the chat down.
 const chat_sent = "chat-sent";
+/// Event that puts focus back in the translation textarea.
+const tr_saved = "tr-saved";
 
 /// Forms to re-render with their errors.
 const Extra = struct {
@@ -22,6 +26,7 @@ const Extra = struct {
     composer: ?forms.MessageForm = null,
     edit_msg: ?forms.MessageForm = null,
     tr: ?forms.TranslationForm = null,
+    notice: []const u8 = "",
 };
 
 /// Blank or malformed ids count as absent: stale links must not fail.
@@ -34,6 +39,7 @@ fn stateOf(req: *httpz.Request, conv: i32) view.State {
         .conv = conv,
         .sel = optId(c_sel, req),
         .leaf = optId(c_leaf, req),
+        .via = optId(c_via, req),
         .edit = view.parseEdit(c_edit.opt(req) orelse ""),
         .q = std.mem.trim(u8, c_q.opt(req) orelse "", " \t\r\n"),
     };
@@ -49,6 +55,7 @@ fn show(app: App, req: *httpz.Request, res: *httpz.Response, state: view.State, 
         .composer = extra.composer,
         .edit_msg = extra.edit_msg,
         .tr = extra.tr,
+        .notice = extra.notice,
     };
     if (state.conv != 0) {
         const conv = try Conversation.get(p, a, state.conv) orelse return error.NotFound;
@@ -86,10 +93,14 @@ pub fn createConversation(app: App, req: *httpz.Request, res: *httpz.Response) !
     res.header("HX-Redirect", try std.fmt.allocPrint(res.arena, "/ui/conversation/{d}", .{created.id}));
 }
 
-/// DELETE /ui/conversation/:id
+/// DELETE /ui/conversation/:id?cur=<open conversation>: deleting the open one
+/// goes home; any other card leaves the open conversation as it is.
 pub fn deleteConversation(app: App, req: *httpz.Request, res: *httpz.Response) !void {
-    if (!try Conversation.delete(try app.pool(), try c_id.getId(req))) return error.NotFound;
-    res.header("HX-Redirect", "/");
+    const id = try c_id.getId(req);
+    if (!try Conversation.delete(try app.pool(), id)) return error.NotFound;
+    const cur = optId(c_cur, req) orelse 0;
+    if (cur == id) return res.header("HX-Redirect", "/");
+    try show(app, req, res, stateOf(req, cur), .ok, .{});
 }
 
 // -- messages --------------------------------------------------------------
@@ -107,7 +118,7 @@ pub fn messageCreate(app: App, req: *httpz.Request, res: *httpz.Response) !void 
     const f = forms.message(req.formData() catch return error.ContractKeyNotFound);
     if (!forms.ok(f)) return show(app, req, res, state, .unprocessable_entity, .{ .composer = f });
 
-    const route = try route_mod.resolve(a, try Message.listByConversation(p, a, conv), state.sel, state.leaf);
+    const route = try route_mod.resolve(a, try Message.listByConversation(p, a, conv), .{ .sel = state.sel, .leaf = state.leaf });
     const parent = route.sel orelse route.leaf;
     const created = try Message.create(p, a, conv, parent, f.role, f.content) orelse return error.NotFound;
     try pushUrl(res, conv, created.id, created.id);
@@ -159,7 +170,8 @@ pub fn translationCreate(app: App, req: *httpz.Request, res: *httpz.Response) !v
     const f = forms.translation(req.formData() catch return error.ContractKeyNotFound);
     if (!forms.ok(f)) return show(app, req, res, state, .unprocessable_entity, .{ .tr = f });
     _ = try Translation.create(p, res.arena, m.id, f.language, f.content) orelse return error.NotFound;
-    try show(app, req, res, state, .ok, .{});
+    res.header("HX-Trigger-After-Settle", tr_saved);
+    try show(app, req, res, state, .ok, .{ .notice = "Added" });
 }
 
 fn translationAndMessage(app: App, res: *httpz.Response, id: i32) !struct { types.Translation, types.Message } {
@@ -179,7 +191,8 @@ pub fn translationUpdate(app: App, req: *httpz.Request, res: *httpz.Response) !v
     }
     _ = try Translation.update(try app.pool(), res.arena, t.id, f.language, f.content) orelse return error.NotFound;
     state.edit = .none;
-    try show(app, req, res, state, .ok, .{});
+    res.header("HX-Trigger-After-Settle", tr_saved);
+    try show(app, req, res, state, .ok, .{ .notice = "Saved" });
 }
 
 /// DELETE /ui/translation/:id?sel=&leaf=
